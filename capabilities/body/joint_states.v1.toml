@@ -1,0 +1,21 @@
+# Body joint feedback (lift column, waist, head yaw/pitch) on /joint_states.
+#
+# Defined at PACKAGE level rather than in the robonix global tree:
+# `capabilities/primitive/` ships arm / audio / camera / chassis / gripper /
+# hand / health / imu / lidar / quadruped / robot_description but has no
+# body or ext-axis family. Reusing `robonix/primitive/arm/joint_states` would
+# be wrong twice: the lift is prismatic, and arm consumers would start
+# receiving joints they cannot interpret.
+#
+# `rbnx codegen` and Atlas both merge package-level capabilities into the
+# global tree, so consumers just query `robonix/primitive/body/joint_states`
+# and never need to know it lives here.
+[contract]
+id          = "robonix/primitive/body/joint_states"
+version     = "1"
+kind        = "primitive"
+idl         = "common_interfaces/sensor_msgs/msg/JointState.msg"
+description = "Body joint feedback: lift in m, waist/head in rad, on ROS 2 /joint_states."
+
+[mode]
+type = "topic_out"

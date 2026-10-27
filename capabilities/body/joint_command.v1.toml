@@ -1,0 +1,15 @@
+# Body joint position targets (lift column, waist, head yaw/pitch).
+#
+# Consumers publish the subset of the four body joints they want to move.
+# Units follow the feedback stream exactly: lift in metres, angles in radians.
+# Unlisted joints are left where they are; out-of-range targets are rejected
+# with a warning rather than clamped.
+[contract]
+id          = "robonix/primitive/body/joint_command"
+version     = "1"
+kind        = "primitive"
+idl         = "common_interfaces/sensor_msgs/msg/JointState.msg"
+description = "Body joint position targets (m for the lift, rad for rotations)."
+
+[mode]
+type = "topic_in"

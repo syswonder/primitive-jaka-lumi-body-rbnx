@@ -1,0 +1,30 @@
+manifestVersion: 1
+
+package:
+  name: robonix.primitive.jaka.lumi.body
+  version: 0.1.0
+  description: >-
+    JAKA Lumi body-joint primitive: lift column, waist yaw and head yaw/pitch
+    driven over the vendor HTTP API (192.168.10.90:5000), published on
+    /joint_states so the upper-body and camera frames stay in the TF tree.
+  tags: [primitive, body, extaxis, jaka, lumi, http, ros2]
+  maintainers:
+    - Felix Xi <xi.lifeng@qq.com>
+  license: Apache-2.0
+
+build: bash scripts/build.sh
+start: bash scripts/start.sh
+
+# The canonical tree has no body/ext-axis family, so this package defines the
+# two contracts locally (packaging-spec §1.2). Codegen and Atlas merge
+# package-level contracts automatically — same mechanism the Orbbec camera
+# package uses for camera_info.
+capabilities:
+  - name: robonix/primitive/body/joint_states
+    transport: ros2
+    path: capabilities/body/joint_states.v1.toml
+  - name: robonix/primitive/body/joint_command
+    transport: ros2
+    path: capabilities/body/joint_command.v1.toml
+
+depends: []
