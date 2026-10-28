@@ -1,108 +1,120 @@
 # primitive-jaka-lumi-body-rbnx
 
-JAKA Lumi **本体关节**原语的 Robonix 软件包：驱动升降柱、腰部旋转、头部旋转、
-头部俯仰这 4 个电机（厂商称"外部轴"），并发布到 `/joint_states`。
+Robonix package for the JAKA Lumi **body joints**: it drives the lift column,
+waist rotation, head rotation and head pitch — the four motors the vendor calls
+"ext-axis" — and publishes them on `/joint_states`.
 
 ```text
 lumi_body/
-├── http_client.py   厂商 HTTP 接口：sysinfo / status / enable / reset / stop / moveto
-├── driver.py        配置校验 + 单位换算 + 状态轮询 + 限位 + 指令下发
-└── main.py          Primitive 生命周期（包内本地契约）
+├── http_client.py   vendor HTTP API: sysinfo / status / enable / reset / stop / moveto
+├── driver.py        config validation + unit conversion + status polling + limits + command dispatch
+└── main.py          Primitive lifecycle (package-local contracts)
 ```
 
-## 这个包为什么必须存在
+## Why this package has to exist
 
-`robot_state_publisher` 只按**最新一条** `/joint_states` 生成 TF（已用 ROS 2
-Humble 实测确认）。Lumi 的运动链是：
+`robot_state_publisher` derives TF only from the **latest** `/joint_states`
+message (verified on ROS 2 Humble). The Lumi kinematic chain is:
 
 ```text
-base_link → l_1(升降) → l_2(腰) → { l_3(头旋) → l_4(头俯) → Camera3_Link
-                                 { Camera2_Link
-                                 { l_a1..l_a6(机械臂)
+base_link → l_1(lift) → l_2(waist) → { l_3(head yaw) → l_4(head pitch) → Camera3_Link
+                                    { Camera2_Link
+                                    { l_a1..l_a6(arm)
 ```
 
-两台 RGB-D 相机都挂在升降/腰/头之上。**没有人发布 `l_1..l_4`，相机就不在 TF
-树里**，RTAB-Map 拿不到"图像→地图"的变换，建图直接起不来。而机械臂包只发它
-自己的 6 个关节到 `/jaka/joint_states`，补不上这条链；拆成两个 publisher 又会
-互相覆盖导致 TF 抖动。所以由这个包独占 `/joint_states` 发布 `l_1..l_4`。
+Both RGB-D cameras hang above the lift/waist/head joints. **Without a publisher
+for `l_1..l_4` the cameras never enter the TF tree**, RTAB-Map cannot resolve
+image-to-map transforms, and mapping does not start. The arm package only
+publishes its own six joints on `/jaka/joint_states`, so it cannot fill this
+chain; splitting the joints across two publishers makes them overwrite each
+other and the TF tree flaps. This package therefore owns `/joint_states` and
+publishes `l_1..l_4` on it.
 
-## 能力
+## Capabilities
 
-| 契约 | 模式 | 传输 | 端点 |
+| Contract | Mode | Transport | Endpoint |
 |---|---|---|---|
 | `robonix/primitive/body/joint_states` | `topic_out` | ros2 | `/joint_states` |
 | `robonix/primitive/body/joint_command` | `topic_in` | ros2 | `/lumi_body/joint_command` |
 
-两个契约在全局能力树里不存在，因此在本包 `capabilities/body/*.toml` 里本地定义
-（`packaging-spec.md §1.2` 允许，`rbnx codegen` 与 Atlas 会自动合并）。
+Neither contract exists in the global capability tree, so both are declared
+locally in `capabilities/body/*.toml` (`packaging-spec.md §1.2` allows this;
+`rbnx codegen` and Atlas merge package-level contracts automatically).
 
-| 关节 | URDF 类型 | 默认限位 | 单位 |
+| Joint | URDF type | Default limit | Unit |
 |---|---|---|---|
-| `l_1` | prismatic | 0 ~ 300 mm（URDF 允许 400） | m |
-| `l_2` | revolute | ±140°（URDF 允许 160） | rad |
+| `l_1` | prismatic | 0 … 300 mm (URDF allows 400) | m |
+| `l_2` | revolute | ±140° (URDF allows 160) | rad |
 | `l_3` | revolute | ±180° | rad |
-| `l_4` | revolute | -5° ~ 35° | rad |
+| `l_4` | revolute | -5° … 35° | rad |
 
-细节见 [CAPABILITY.md](CAPABILITY.md)，配置字段见 [config.spec](config.spec)。
+Details are in [CAPABILITY.md](CAPABILITY.md); the configuration fields are in
+[config.spec](config.spec).
 
-## 前置条件
+## Prerequisites
 
-- Robonix 已安装并登记源码根：`rbnx setup ~/robonix`
-- ROS 2 Humble（`/opt/ros/humble`），含 `sensor_msgs`、`colcon`
-- 控制柜可达：`curl http://192.168.10.90:5000/api/extaxis/sysinfo`
-  （连不上多半是 WiFi 侧缺 `192.168.10.x/24` 静态地址）
+- Robonix installed with the source root registered: `rbnx setup ~/robonix`
+- ROS 2 Humble (`/opt/ros/humble`) with `sensor_msgs` and `colcon`
+- Reachable cabinet: `curl http://192.168.10.90:5000/api/extaxis/sysinfo`
+  (failure is usually the missing `192.168.10.x/24` static address on the WiFi link)
 
-## 构建与验证
+## Build and test
 
 ```bash
 rbnx validate .
-bash scripts/build.sh          # venv + codegen + colcon build（约 15 分钟）
+bash scripts/build.sh          # venv + codegen + colcon build (about 15 minutes)
 
-# 单元测试（39 个，无需硬件；发布路径需要 ROS 环境）
+# unit tests (39, no hardware needed; the publish path needs the ROS environment)
 source /opt/ros/humble/setup.bash
 python3 -m unittest discover -s lumi_body/tests -t .
 ```
 
-## 单独启动（调试）
+## Standalone start (debugging)
 
 ```bash
 rbnx start -p . --endpoint 127.0.0.1:50051 --set motion_enabled=false
 ```
 
-`motion_enabled` 默认 `false`，此时只发布 `/joint_states`，`joint_command` 全部
-拒绝并打 warning。确认反馈与限位无误后打开：
+`motion_enabled` defaults to `false`: only `/joint_states` is published and every
+`joint_command` is rejected with a warning. Enable it once the feedback and the
+limits look right:
 
 ```bash
 rbnx start -p . --set motion_enabled=true --set lift_max_mm=300
 ```
 
-## 验证
+## Verification
 
 ```bash
-# 1) provider 与能力
+# 1) provider and capabilities
 rbnx caps -v | rg -A6 lumi_body
 
-# 2) 四个关节是否在流里
+# 2) are the four joints in the stream
 ros2 topic echo /joint_states --once
 
-# 3) 关键检查：相机是否进 TF 树
+# 3) the decisive check: did the cameras enter the TF tree
 ros2 run tf2_ros tf2_echo base_link Camera3_Link
 ros2 run tf2_ros tf2_echo base_link Camera2_Link
 ```
 
-第 3 条能解析，说明"本体包 + 整机 URDF + robot_state_publisher"这条链是通的。
+If the third check resolves, the chain "body package + whole-robot URDF +
+robot_state_publisher" is connected.
 
-## 已知限制
+## Known limitations
 
-- **机械臂 6 个关节不进 TF**：它们由复用上游的臂包发布到 `/jaka/joint_states`。
-  要让整棵树完整，需要 `publish_arm_joints`（第二个 jkrc 客户端读臂角度）或
-  fork 臂包让单进程同时发 10 个关节。两者都留到上机验证后再定。
-- **`velocity` 字段留空**：厂商按轴给 mm/s 与 deg/s，混在一个 JointState 里比
-  不提供更糟。
-- **不改 tool/payload**：这是臂包的职责，与本体无关。
-- 状态读取失败超过 `error_threshold` 次后会继续发最后一次的测量值（打 warning），
-  目的是不让 TF 断掉；可用 `publish_last_known_on_error: false` 改成静默。
+- **The six arm joints do not enter TF.** They are published by the reused
+  upstream arm package on `/jaka/joint_states`. Completing the tree needs either
+  `publish_arm_joints` (a second jkrc client reading the arm angles) or forking
+  the arm package so one process publishes all ten joints. Both wait for the
+  on-hardware acceptance run.
+- **The `velocity` field stays empty.** The vendor reports mm/s and deg/s per
+  axis; mixing those unit systems inside one JointState is worse than omitting
+  them.
+- **No tool/payload changes.** That belongs to the arm package, not to the body.
+- After more than `error_threshold` consecutive status failures the provider keeps
+  publishing the last measured values (with a warning) so the TF tree does not
+  break. Set `publish_last_known_on_error: false` to go silent instead.
 
-## 许可
+## License
 
-Apache-2.0。
+Apache-2.0.
